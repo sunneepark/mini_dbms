@@ -1,0 +1,476 @@
+/**
+ * JavaCC template file created by SF JavaCC plugin 1.5.28+ wizard for JavaCC 1.5.0+
+ */options{  static = false;}PARSER_BEGIN(SQLParser)package com.dp.miniDBMS.qp.qpp;
+
+import java.util.*;
+import com.dp.miniDBMS.qp.qpe.*;
+import com.dp.miniDBMS.qp.qpo.*;
+import com.dp.miniDBMS.sm.smd.*;
+import com.dp.miniDBMS.sm.smo.DicColumn;
+import com.dp.miniDBMS.sm.smo.type.*;
+import com.dp.miniDBMS.qp.qpo.expression.*;
+	
+public class SQLParser{  }PARSER_END(SQLParser)
+// 토큰을 생성하지 않는 단어
+SKIP :
+{
+    <" "> | <"\t"> | <"\n"> | <"\f"> | <"\r">
+}
+
+// SQL keywords
+TOKEN [IGNORE_CASE]:
+{
+	< DP_CREATE: "CREATE" >
+| 	< DP_DATABASE: "DATABASE" >
+	
+| 	< DP_INSERT: "INSERT" >
+| 	< DP_INTO: "INTO" >
+| 	< DP_VALUES: "VALUES" >
+| 	< DP_TABLE: "TABLE" >
+
+| 	< DP_SELECT: "SELECT" >
+| 	< DP_FROM: "FROM" >
+| 	< DP_WHERE: "WHERE" >
+| 	< DP_ORDER: "ORDER" >
+| 	< DP_BY: "BY" >
+| 	< DP_AND: "AND" >
+| 	< DP_OR: "OR" >
+
+| 	< DP_UPDATE: "UPDATE" >
+|  	< DP_SET: "SET" >
+
+| 	< DP_DELETE: "DELETE" >
+
+| 	< DP_USE: "USE" >
+| 	< DP_IGNORE: "IGNORE" >
+| 	< DP_INDEX: "INDEX" >
+
+| 	< DP_EXPLAIN: "EXPLAIN" >
+
+|	< DP_INT: "int" >
+|	< DP_CHAR: "char" >
+}
+
+// <"토큰명" : "정규표현식" >
+// token 초기화에 필요한 정규 표현식 중 identifier
+TOKEN:
+{
+	< IDENTIFIER: ["a"-"z", "A"-"Z"]([ ".", "_", "0"-"9", "a"-"z", "A"-"Z"])* > // .이 나오는 것은 database.table 밖에 없음
+}
+
+// token literals
+TOKEN:
+{
+	< INT_LITERAL: (["0"-"9"])+ >
+|	< STRING_LITERAL: "'"(~["\\", "'"]|"''"|"\\'")*"'" >
+	// 작은따옴표 제외하고는 escape 문자가 아님 
+}
+
+// SQL symbols
+TOKEN:
+{
+	< SYM_PLUS: "+" >
+|	< SYM_MINUS: "-" >
+|	< SYM_STAR: "*" >
+|	< SYM_SLASH: "/" >
+|	< SYM_EQUAL: "=" >
+|	< SYM_EXCLEQUAL: "!=" >
+|	< SYM_LESS: "<" >
+|	< SYM_MORE: ">" >
+|	< SYM_LESSEQUAL: "<=" >
+|	< SYM_MOREEQUAL: ">=" >
+
+| 	< SYM_COUNT: "count(*)">
+}
+
+/*customize AST*/
+
+// Grammar --------------------------------------------------------------------
+
+Command Command():
+{
+	Command ret;
+}
+{
+	(
+		< DP_CREATE >
+		(
+			ret = createDatabase()
+		| 	ret = createTable()
+		)
+	| 	ret = insert()
+	| 	ret = select()
+	| 	ret = update()
+	| 	ret = delete()
+	| 	ret = chooseDatabase()
+	
+	) ";" < EOF >
+	{ return ret; }
+}
+
+
+//------------- SQL command -----------------------------
+
+// USE { database name }
+CreateDatabaseCommand chooseDatabase():
+{
+	String databaseName;
+}
+{
+  < DP_USE >
+  ( databaseName = Identifier() )
+  { return new CreateDatabaseCommand(token, databaseName, true); }
+}
+
+
+// CREATE DATABASE { database name }
+CreateDatabaseCommand createDatabase():
+{
+	String databaseName;
+}
+{
+  < DP_DATABASE >
+  ( databaseName = Identifier() )
+  { return new CreateDatabaseCommand(token, databaseName); }
+}
+
+// CREATE TABLE { db name.table name } ( { column0 name , column0 type } ... )
+CreateTableCommand createTable():
+{
+	String tableName;
+	List<DicColumn> attributes
+			= new ArrayList<DicColumn>();
+	DicColumn attribute;
+}
+{
+	< DP_TABLE > ( tableName = Identifier() )
+	"("
+	(
+		(
+			( attribute = makeAttr() )
+			{ attributes.add(attribute); }
+		)
+		("," ( attribute = makeAttr() )
+			{ attributes.add(attribute); } )*	  
+	)
+	")"
+	{ return new CreateTableCommand(token, tableName, attributes); }
+}
+
+//column dictionary 만들기
+DicColumn makeAttr():
+{
+	String colName;
+	TypeBase type;
+	int length = -1;
+
+}
+{
+	( colName = Identifier() )
+	(			
+		(
+			< DP_INT > { type = TypeEnum.INT.makeType(); } 
+		)
+	|	(
+			< DP_CHAR > "(" < INT_LITERAL > { length=Integer.parseInt(token.image); } ")" 
+			{ type = TypeEnum.CHAR.makeType(); type.setMaxSize(length); } 
+		)
+	)
+	{ return new DicColumn(colName, type); }
+}
+
+// INSERT INTO { databsase name.table name } VALUES { val0, val1 ... } -----------------------------------------
+InsertCommand insert():
+{
+	String tableName;
+	List<TypeBase> values = new ArrayList<TypeBase>();
+
+	TypeBase value;
+}
+{
+	< DP_INSERT > < DP_INTO > ( tableName = Identifier() )
+	< DP_VALUES > "("
+	( ( value = GetValue() ) { values.add(value); } )
+	( "," ( value = GetValue() ) { values.add(value); } )*
+	")" 
+	{ return new InsertCommand(token, tableName, values); }
+}
+
+// SELECT { attr0,... 예외) count(*) } FROM { table0,... } ( WHERE { conditions } ) ( ORDER BY { column } ) --------------------------
+SelectCommand select():
+{
+	List<String> attrNames = null; //select 대상 속성 이름.
+	int type = -1;
+	List<String> tables = new ArrayList<String>(); //from 대상 테이블 이름. 
+	Exp condition = null;  
+
+	String name;
+	String ignoreCol = "0"; //ignore 인덱스 대상 
+	String orderCol = null; //order 대상 컬럼 이름.
+	boolean isExplain = false;
+}
+{
+  	( < DP_EXPLAIN > ( isExplain = change() ))?	
+	< DP_SELECT >
+	(	
+		(
+			(
+				( name = Identifier())
+				{
+					attrNames = new ArrayList<String>();
+					attrNames.add(name);
+				}
+			)
+			( "," ( name = Identifier() ) { attrNames.add(name); } )*
+		)
+	|	< SYM_STAR > { type = 1;}
+	| 	< SYM_COUNT > { type = 2; }
+	)
+	< DP_FROM >
+	( ( name = Identifier() ) { tables.add(name); } )
+	( "," ( name = Identifier() ) { tables.add(name); } )*
+	( < DP_IGNORE > <DP_INDEX > "(" ( ignoreCol = Identifier()) ")" )?
+	( < DP_WHERE > ( condition = Expression() ) )?
+	( < DP_ORDER > < DP_BY > ( orderCol = Identifier() ) )?
+	{ return new SelectCommand(token, attrNames, type, tables, condition, orderCol, ignoreCol, isExplain); }
+}
+
+  
+//////////////////
+// 
+// 0. and 와 or 을 기준으로 left , right > (select) 일 경우가 큼 
+// 1. 비교 연산자 
+// 2. 
+//  
+Exp Expression():
+{
+	Exp ret;
+}
+{
+	{ Exp.clearGlobalExpString(); }
+	ret = LogicOp()
+	{ ret.saveExpString();  return ret; }
+}
+
+Exp LogicOp():
+{
+	Exp ret;
+	BinaryExp postfix;
+}
+{
+	( ret = CmpOp() )
+	(
+		( postfix = LogicOp_postfix() )
+		{ postfix.setLeft(ret);  ret = postfix; }
+	)*
+	{ return ret; }
+}
+
+// (AND, OR) - > 논리연산
+BinaryExp LogicOp_postfix():
+{
+	Token op;
+	Exp right;
+}
+{
+	( < DP_AND > | < DP_OR > )
+	{ op = token;  Exp.appendToGlobalExpString(" "+token.image.toUpperCase()+" "); }
+	( right = CmpOp() )
+	{ return new BinaryExp(null, op, right); }
+}
+
+
+// 부등호 표현식 ( > , < , >= , <= ) - > 비교연산자
+Exp CmpOp():
+{
+	Exp ret;
+	BinaryExp postfix;
+}
+{
+	( ret = AddOp() )
+	(
+		( postfix = CmpOp_postfix() )
+		{ postfix.setLeft(ret);  ret = postfix; }
+	)*
+	{ return ret; }
+}
+BinaryExp CmpOp_postfix():
+{
+	Token op;
+	Exp right;
+}
+{
+	( < SYM_LESS > | < SYM_LESSEQUAL > | < SYM_EQUAL >
+	| < SYM_EXCLEQUAL > | < SYM_MORE > | < SYM_MOREEQUAL > )
+	{ op =  token;  Exp.appendToGlobalExpString(token.image); }
+	( right = AddOp() )
+	{ return new BinaryExp(null, op, right); }
+}
+
+
+// ( + , - ) - > 수식연산자 
+Exp AddOp():
+{
+	Exp ret;
+	BinaryExp postfix;
+}
+{
+	( ret = MulOp() )
+	(
+		( postfix = AddOp_postfix() )
+		{ postfix.setLeft(ret);  ret = postfix; }
+	)*
+	{ return ret; }
+}
+BinaryExp AddOp_postfix():
+{
+	Token op;
+	Exp right;
+}
+{
+	( < SYM_PLUS > | < SYM_MINUS > )
+	{ op = token;  Exp.appendToGlobalExpString(token.image); }
+	( right = MulOp() )
+	{ return new BinaryExp(null, op, right); }
+}
+
+
+// ( * , / ) - > 수식연산자
+Exp MulOp():
+{
+	Exp ret;
+	BinaryExp postfix;
+}
+{
+	( ret = PrimaryExp() )
+	(
+		( postfix = MulOp_postfix() )
+		{ postfix.setLeft(ret);  ret = postfix; }
+	)*
+	{ return ret; }
+}
+BinaryExp MulOp_postfix():
+{
+	Token op;
+	Exp right;
+
+}
+{
+	( < SYM_STAR >  | < SYM_SLASH > )
+	{ op = token;  Exp.appendToGlobalExpString(token.image); }
+	( right = PrimaryExp() )
+	{ return new BinaryExp(null, op, right); }
+}
+
+//
+// 경우의수 4가지
+//
+// 0. 숫자일 경우
+// 1. 문자일 경우
+// 2. 칼럼 이름일 경우 
+// 3. 괄호일 경우
+//
+
+Exp PrimaryExp():
+{
+	Exp ret;
+	String name;
+}
+{
+	(
+		(
+			< INT_LITERAL >
+			{ ret = new LiteralExp(token, Integer.parseInt(token.image));
+			Exp.appendToGlobalExpString(token.image); }
+		)
+	|	(
+			< STRING_LITERAL > 
+			{ ret = new LiteralExp(token, LiteralExp.processStringLiteral(token.image));
+			Exp.appendToGlobalExpString(token.image);
+			}
+		)
+	|	(
+			( name = Identifier() )
+			{ret = new AttributeExp(token, name);
+			Exp.appendToGlobalExpString(name); }
+		)
+	|	(
+			"(" { Exp.appendToGlobalExpString('('); }
+			( ret = LogicOp() )
+			")" { Exp.appendToGlobalExpString(')'); }
+		)
+	)
+	{ return ret; }
+}
+
+
+// UPDATE { table1 } set { attr1 } { to be value } where { condition }
+UpdateCommand update():
+{
+  
+	String tableName;
+	String attrName;
+	TypeBase value;
+	
+	Exp condition = null;  
+}
+{
+	< DP_UPDATE >
+	( tableName = Identifier() )
+	< DP_SET >
+	( attrName = Identifier() )	
+	< SYM_EQUAL >
+	( value = GetValue() ) 
+	< DP_WHERE >
+	( condition = Expression() )?
+	
+	{ return new UpdateCommand(token, tableName, attrName, value, condition); }
+}
+
+// DELETE FROM { table } WHERE { condition }
+DeleteCommand delete():
+{
+	String tableName;
+	
+	Exp condition = null;  
+}
+{
+	< DP_DELETE > < DP_FROM >
+	( tableName = Identifier() )
+	< DP_WHERE >
+	( condition = Expression() )?
+	
+	{ return new DeleteCommand(token, tableName, condition); }
+}
+
+
+//insert 할 때 해당 타입이 무엇인지
+TypeBase GetValue():
+{ }
+{
+  		(
+			< INT_LITERAL >
+			{ return TypeEnum.INT.makeTypeWithValue(token.image); }
+		)
+	|	(
+			< STRING_LITERAL > 
+			{ String temp = token.image;
+			  return TypeEnum.CHAR.makeTypeWithValue(temp.substring(1, temp.length()-1));} 
+		)
+}
+ 
+//대소문자 상관 없게 하기 위함.
+String Identifier():
+{}
+{
+	< IDENTIFIER >
+	{ return token.image.toUpperCase(); }
+}
+
+boolean change():
+{
+
+}
+{
+	{ return true; }
+}

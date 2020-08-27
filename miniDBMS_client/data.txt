@@ -1,0 +1,73 @@
+
+create table sunny.snoopy (c1 int, c2 int, c3 char(100));
+select * from snoopy;
+__________________________________________________________
+파일 없는거 보여주기
+프로세스 실행하는 거 보여주기
+
+select * from snoopy;
+use sunny; 
+select * from snoopy; -> 다른 곳에서는 불가능 
+
+select c1, c2, c3 from snoopy;
+select count(*) from snoopy;
+
+select c1, c2, c3 from snoopy where c1 = 19000;
+select c1, c2, c3 from snoopy where c1 < 4990;
+select c1, c2, c3 from snoopy where c1 <= 4990;
+
+explain select * from snoopy where c1 < 3000 and c2 > 9000 order by c2;
+ > using temporary
+	full scan
+		by row id
+			index range scan
+
+explain select c1,c2,c3 from snoopy where c1 > 4990 order by c1; > by row id, index range scan : 0.085 139277 rows
+
+explain select c1,c2,c3 from snoopy where c2 < 4000 order by c1; > 59865 rows 0.181 full index scan by row id full scan
+explain select c1,c2,c3 from snoopy ignore index(c1) where c2 < 4000 order by c1;
+
+explain Select c1, c2 from snoopy where c2 > 2 and c1 = 69983; > 4 rows 0.025 
+explain Select c1, c2 from snoopy ignore index(c1) where c2 > 2 and c1 = 69983; > 4 rows 0.217
+
+explain select c2, c1, c3 from snoopy ignore index(c1) where c2 = 2 and c1 > 2; > hint, 추가 설명-> 인덱스 레인지 스캔을 안하기 때문에 정렬이 안되어있음.  : 18 rows 0.044
+explain select c2, c1, c3 from snoopy ignore index(c2) where c2 = 2 and c1 > 2; : 18 rows 0.063
+
+
+
+select c1, c2, c3 from snoopy;
+6496
+UPDATE snoopy SET c2 =10 WHERE c1 = 19000; 
+select * from snoopy where c1 = 19000; 
+select * from snoopy where c1 = 19000;
+commit;
+
+
+UPDATE snoopy SET c3 ='ccc' WHERE c2 >= 10; 
+select * from snoopy where c2 <= 15;
+select * from sunny.snoopy where c1 = 4868;
+
+commit;
+
+(껏다키기)
+
+select * from sunny.snoopy where c2 < 10 or c1 = 19000;
+
+
+delete from snoopy where c2 > 5000;
+select * from snoopy where c2>5000;
+commit;
+select * from snoopy where c2>5000;
+
+
+
+_________________________________________________________ 되는 쿼리 적기 
+
+select {*, c1, c2, c3} from {snoopy} where {c1 | c2} {= | > | < | <= | >=} {literal} {and | or} {c1 | c2} {= | > | < | <= | >=}  {literal} ; 
+select {*, c1, c2, c3} from {snoopy} where {c1 | c2} {> | < | <= | >=} {literal} {and | or} {c1 | c2} {= | > | < | <= | >=}  {literal}  order by { c1 | c2 };
+update {snoopy} set {c1 | c2 | c3 } = {literal} where {c1 | c2}  {= | > | < | <= | >=} {literal} ;
+delete from {snoopy} where {c1 | c2}  {= | > | < | <= | >=} {literal};
+
+select * from snoopy where c1 > 100 or c2 < 100;
+select * from snoopy where c1 > 100 and c1 < 2 order by c1;
+select * from snoopy where c1 < 3000 and c2 > 9000 order by c2;

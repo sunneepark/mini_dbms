@@ -1,0 +1,46 @@
+select * from snoopy;
+use sunny; 
+select * from snoopy; -> 다른 곳에서는 불가능 
+
+select c1, c2, c3 from snoopy;
+select count(*) from snoopy;
+
+select c1, c2, c3 from snoopy where c1 = 19000;
+select c1, c2, c3 from snoopy where c1 < 4990;
+select c1, c2, c3 from snoopy where c1 <= 4990;
+
+explain select * from snoopy where c1 < 3000 and c2 > 9000 order by c2;
+
+//explain select c1,c2,c3 from snoopy where c1 > 4990 order by c1; 
+
+explain select c1,c2,c3 from snoopy where c2 < 4000 order by c1; 
+explain select c1,c2,c3 from snoopy ignore index(c1) where c2 < 4000 order by c1;
+
+explain Select c1, c2 from snoopy where c2 > 2 and c1 = 69983;  
+explain Select c1, c2 from snoopy ignore index(c1) where c2 > 2 and c1 = 69983; 
+
+explain select c2, c1, c3 from snoopy ignore index(c1) where c2 = 2 and c1 > 2;
+explain select c2, c1, c3 from snoopy ignore index(c2) where c2 = 2 and c1 > 2; 
+
+
+
+select c1, c2, c3 from snoopy;
+
+update snoopy SET c2 =10 WHERE c1 = 19000; 
+select * from snoopy where c1 = 19000; 
+select * from snoopy where c1 = 19000;
+commit;
+
+
+UPDATE snoopy SET c3 ='ccc' WHERE c2 >= 10; 
+
+select * from sunny.snoopy where c2 < 10 or c1 = 19000;
+
+commit;
+
+
+
+delete from snoopy where c2 > 5000;
+select * from snoopy where c2>5000;
+commit;
+select * from snoopy where c2>5000;
